@@ -1,0 +1,2 @@
+gcc -o xvkbd -O2 -fno-strength-reduce -fno-strict-aliasing      -L/usr/lib64   xvkbd.o findwidget.o    -lXaw -lXmu -lXt -lSM -lICE -lXpm  -lXext -lX11 -lXtst -lpthread -lcurses
+

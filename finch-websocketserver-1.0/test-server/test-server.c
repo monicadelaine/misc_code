@@ -1,0 +1,744 @@
+/*
+ * libwebsockets-test-server - libwebsockets test implementation
+ *
+ * Copyright (C) 2010-2011 Andy Green <andy@warmcat.com>
+ *
+ *  This library is free software; you can redistribute it and/or
+ *  modify it under the terms of the GNU Lesser General Public
+ *  License as published by the Free Software Foundation:
+ *  version 2.1 of the License.
+ *
+ *  This library is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ *  Lesser General Public License for more details.
+ *
+ *  You should have received a copy of the GNU Lesser General Public
+ *  License along with this library; if not, write to the Free Software
+ *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+ *  MA  02110-1301  USA
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <getopt.h>
+#include <string.h>
+#include <sys/time.h>
+
+#include "../lib/libwebsockets.h"
+#include <stdio.h>
+#include <wchar.h>
+#include <string.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <pthread.h>
+#include <termios.h>
+#include <errno.h>
+#include <ctype.h>
+#include <fcntl.h>
+
+
+
+#include "hidapi.h"
+pthread_mutex_t lock_mutex= PTHREAD_MUTEX_INITIALIZER;
+hid_device *usbfinch_handle;
+
+#define NAME Finch 
+int stop();	
+int moveForward();	
+int turnLeft();	
+int turnRight();	
+int getTemperature();
+int usbfinch_connect();	
+int usbfinch_disConnect();
+int setLED(int redValue,int blueValue,int greenValue);
+int connect_test();
+int disconnect();
+int keepalive();
+int connected=0;
+int (*p[3]) ();
+void lock()
+{
+	pthread_mutex_lock(&lock_mutex);
+}
+
+void unlock()
+{
+	pthread_mutex_unlock(&lock_mutex);
+}
+int redValue = 0;
+int blueValue = 0;
+int greenValue = 0;
+int leftDir = 0;
+int rightDir = 0;
+int leftPower = 0;
+int rightPower = 0;
+int temperature = 0;
+
+void connect(){
+	usbfinch_connect();
+}
+
+void disConnect(){
+//need to collect connections and within the top level, define these functions with all conx inside
+	usbfinch_disConnect();
+}
+static void* keepAliveEntryPoint()
+      {
+     while(connected==1) {
+        keepalive(); // Note that calling this makes syncLock = 1, so at most this gets called every two seconds
+        sleep(1);
+    }
+           return 0;          // the thread exit code
+}
+
+int usbfinch_connect() {
+    pthread_t threadid;
+
+	printf("in connect ");
+    if (connected == 0) {
+	usbfinch_handle = hid_open(0x2354, 0x1111, NULL);
+    if (!usbfinch_handle) {
+	printf("after connect ");
+      printf("Unable to connect \n");
+      return -1;
+    }
+    else {
+	connected=1;
+	printf("thread ");
+        pthread_create(&threadid, 
+                       NULL,
+                       keepAliveEntryPoint,  // entry-point-function
+                       NULL);          // "this" pointer so we can reach the function we want
+        // Run connection code
+        connect_test();
+	}
+        return 1;
+    }
+return 0;
+}
+int usbfinch_disConnect() {
+
+    connected=0;
+    disconnect();	
+    hid_close(usbfinch_handle); 
+    return 0;
+}
+
+
+int usbfinch_read(unsigned char bufToWrite[], unsigned char bufRead[],int write_count, int read_count)
+{
+    int res; // Holds the result of the HIDAPI hid_write and hid_read commands 
+    
+    // Write a command report
+    lock();
+    res = hid_write(usbfinch_handle, bufToWrite, write_count);      
+    unlock(); 
+    if(res == -1 || res != write_count) {
+        printf("Error, failed to write a read command.");
+        printf("Error is: %ls\n", (wchar_t *)hid_error(usbfinch_handle));
+        return -1;
+    }
+    else {
+        // Read the raw data using hid_read. 
+        lock();
+            res = hid_read(usbfinch_handle, bufRead, read_count);
+            unlock();
+ /*           if(res == -1|| res != read_count) {*/
+            if(res == -1) {
+                printf("Error, failed to read. %d",res);
+                printf("Error is: %ls\n", (wchar_t *)hid_error(usbfinch_handle));
+                return -1;
+            }
+        } 
+    return 1;
+
+}
+
+/**
+ * Generic write-only method, used for set functions that don't expect returned data.
+ * @param bufToWrite 
+ * @return A positive number of the write succeeded, -1 if it failed.
+ */
+int usbfinch_write(unsigned char bufToWrite[],int write_count)
+{
+    int returnVal;
+    // Make sure the keepAlive thread knows we're writing the Finch so it doesn't
+    // try to execute a write at the same time. 
+    lock();
+    returnVal = hid_write(usbfinch_handle, bufToWrite, write_count);
+    unlock();
+    return (returnVal != write_count)?-1:1;
+}
+
+int connect_test(){
+printf("in connect_test");
+ int redValue= 0;	
+ int blueValue= 0;	
+ int greenValue= 0;	
+
+return setLED(redValue,blueValue,greenValue);
+}
+int disconnect() //need to add parameters
+{
+printf("in disconnect");
+int ret;
+//validate incoming data
+unsigned char buffer[9];
+memset(buffer,0,9);
+//format bytelist
+
+buffer[1]='R';
+
+ret = usbfinch_write(buffer,9);
+return 0; 
+}
+int setLED(int redValue,int blueValue,int greenValue) //need to add parameters
+{
+printf("in setLED");
+int ret;
+//validate incoming data
+unsigned char buffer[9];
+memset(buffer,0,9);
+//format bytelist
+
+buffer[1]='O';
+buffer[2]=(char)redValue;
+buffer[2]=(char)blueValue;
+buffer[4]=(char)greenValue;
+
+ret = usbfinch_write(buffer,9);
+return 0; 
+}
+int setMotors(int leftDir,int leftPower,int rightDir,int rightPower) //need to add parameters
+{
+printf("in setMotors");
+int ret;
+//validate incoming data
+unsigned char buffer[9];
+memset(buffer,0,9);
+//format bytelist
+
+buffer[1]='M';
+buffer[2]=(char)leftDir;
+buffer[3]=(char)leftPower;
+buffer[4]=(char)rightDir;
+buffer[5]=(char)rightPower;
+
+ret = usbfinch_write(buffer,9);
+return 0; 
+}
+int get_temperature() //need to add parameters
+{
+printf("in get_temperature");
+int ret;
+//validate incoming data
+unsigned char buffer[9];
+ unsigned char buffer_out[9]; 
+memset(buffer,0,9);
+//format bytelist
+
+buffer[1]='T';
+
+ 
+ret = usbfinch_read(buffer,buffer_out,9,9);
+int temp = buffer[1];
+printf("returned %d in %d\n",temp,1);
+  temperature =(((temp  - 127 ) * 3 ) + 25 );
+
+ return temperature ;  
+}
+int keepalive() //need to add parameters
+{
+printf("in keepalive");
+int ret;
+//validate incoming data
+unsigned char buffer[9];
+memset(buffer,0,9);
+//format bytelist
+
+buffer[1]='z';
+
+ret = usbfinch_write(buffer,9);
+return 0; 
+}
+
+int stop(){
+printf("in stop");
+ int leftDir= 0;	
+ int leftPower= 0;	
+ int rightDir= 0;	
+ int rightPower= 0;	
+
+return setMotors(leftDir,leftPower,rightDir,rightPower);
+}
+int moveBackward(){
+printf("in moveForward");
+ int leftDir= 1;	
+ int leftPower= 200;	
+ int rightDir= 1;	
+ int rightPower= 200;	
+
+return setMotors(leftDir,leftPower,rightDir,rightPower);
+}
+int moveForward(){
+printf("in moveForward");
+ int leftDir= 0;	
+ int leftPower= 200;	
+ int rightDir= 0;	
+ int rightPower= 200;	
+
+return setMotors(leftDir,leftPower,rightDir,rightPower);
+}
+int turnLeft(){
+printf("in turnleft");
+ int leftDir= 1;	
+ int leftPower= 200;	
+ int rightDir= 0;	
+ int rightPower= 200;	
+
+return setMotors(leftDir,leftPower,rightDir,rightPower);
+}
+
+// added code to turn left small amount 
+int turnLeftSmall(){
+printf("in turnleft_small");
+ int leftDir= 1;	
+ int leftPower= 50;	
+ int rightDir= 0;	
+ int rightPower= 50;	
+
+return setMotors(leftDir,leftPower,rightDir,rightPower);
+}
+
+
+int turnRight(){
+printf("in turnRight");
+ int leftDir= 0;	
+ int leftPower= 200;	
+ int rightDir= 1;	
+ int rightPower= 200;	
+
+return setMotors(leftDir,leftPower,rightDir,rightPower);
+}
+
+
+//added code to turn right small amount
+int turnRightSmall(){
+printf("in turnRight small");
+ int leftDir= 0;	
+ int leftPower= 50;	
+ int rightDir= 1;	
+ int rightPower= 50;	
+
+return setMotors(leftDir,leftPower,rightDir,rightPower);
+}
+
+int getTemperature(){
+printf("in getTemperature");
+return get_temperature();
+}
+
+
+
+/*
+ * This demo server shows how to use libwebsockets for one or more
+ * websocket protocols in the same server
+ *
+ * It defines the following websocket protocols:
+ *
+ *  dumb-increment-protocol:  once the socket is opened, an incrementing
+ *				ascii string is sent down it every 50ms.
+ *				If you send "reset\n" on the websocket, then
+ *				the incrementing number is reset to 0.
+ *
+ *  lws-mirror-protocol: copies any received packet to every connection also
+ *				using this protocol, including the sender
+ */
+
+enum demo_protocols {
+	/* always first */
+	PROTOCOL_HTTP = 0,
+
+	PROTOCOL_DUMB_INCREMENT,
+	PROTOCOL_LWS_MIRROR,
+
+	/* always last */
+	DEMO_PROTOCOL_COUNT
+};
+
+
+#define LOCAL_RESOURCE_PATH DATADIR"/libwebsockets-test-server"
+
+/* this protocol server (always the first one) just knows how to do HTTP */
+
+static int callback_http(struct libwebsocket_context * this,
+		struct libwebsocket *wsi,
+		enum libwebsocket_callback_reasons reason, void *user,
+							   void *in, size_t len)
+{
+	char client_name[128];
+	char client_ip[128];
+
+	switch (reason) {
+	case LWS_CALLBACK_HTTP:
+		fprintf(stderr, "serving HTTP URI %s\n", (char *)in);
+
+		if (in && strcmp(in, "/favicon.ico") == 0) {
+			if (libwebsockets_serve_http_file(wsi,
+			     LOCAL_RESOURCE_PATH"/favicon.ico", "image/x-icon"))
+				fprintf(stderr, "Failed to send favicon\n");
+			break;
+		}
+
+		/* send the script... when it runs it'll start websockets */
+
+		if (libwebsockets_serve_http_file(wsi,
+				  LOCAL_RESOURCE_PATH"/finch.html", "text/html"))
+			fprintf(stderr, "Failed to send HTTP file\n");
+		break;
+
+	/*
+	 * callback for confirming to continue with client IP appear in
+	 * protocol 0 callback since no websocket protocol has been agreed
+	 * yet.  You can just ignore this if you won't filter on client IP
+	 * since the default uhandled callback return is 0 meaning let the
+	 * connection continue.
+	 */
+
+	case LWS_CALLBACK_FILTER_NETWORK_CONNECTION:
+
+		libwebsockets_get_peer_addresses((int)(long)user, client_name,
+			     sizeof(client_name), client_ip, sizeof(client_ip));
+
+		fprintf(stderr, "Received network connect from %s (%s)\n",
+							client_name, client_ip);
+
+		/* if we returned non-zero from here, we kill the connection */
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+
+/*
+ * this is just an example of parsing handshake headers, you don't need this
+ * in your code unless you will filter allowing connections by the header
+ * content
+ */
+
+static void
+dump_handshake_info(struct lws_tokens *lwst)
+{
+	int n;
+	static const char *token_names[] = {
+		[WSI_TOKEN_GET_URI] = "GET URI",
+		[WSI_TOKEN_HOST] = "Host",
+		[WSI_TOKEN_CONNECTION] = "Connection",
+		[WSI_TOKEN_KEY1] = "key 1",
+		[WSI_TOKEN_KEY2] = "key 2",
+		[WSI_TOKEN_PROTOCOL] = "Protocol",
+		[WSI_TOKEN_UPGRADE] = "Upgrade",
+		[WSI_TOKEN_ORIGIN] = "Origin",
+		[WSI_TOKEN_DRAFT] = "Draft",
+		[WSI_TOKEN_CHALLENGE] = "Challenge",
+
+		/* new for 04 */
+		[WSI_TOKEN_KEY] = "Key",
+		[WSI_TOKEN_VERSION] = "Version",
+		[WSI_TOKEN_SWORIGIN] = "Sworigin",
+
+		/* new for 05 */
+		[WSI_TOKEN_EXTENSIONS] = "Extensions",
+
+		/* client receives these */
+		[WSI_TOKEN_ACCEPT] = "Accept",
+		[WSI_TOKEN_NONCE] = "Nonce",
+		[WSI_TOKEN_HTTP] = "Http",
+	};
+	
+	for (n = 0; n < WSI_TOKEN_COUNT; n++) {
+		if (lwst[n].token == NULL)
+			continue;
+
+		fprintf(stderr, "    %s = %s\n", token_names[n], lwst[n].token);
+	}
+}
+
+/* dumb_increment protocol */
+
+/*
+ * one of these is auto-created for each connection and a pointer to the
+ * appropriate instance is passed to the callback in the user parameter
+ *
+ * for this example protocol we use it to individualize the count for each
+ * connection.
+ */
+
+struct per_session_data__dumb_increment {
+	int number;
+
+};
+
+static int
+callback_dumb_increment(struct libwebsocket_context * this,
+			struct libwebsocket *wsi,
+			enum libwebsocket_callback_reasons reason,
+					       void *user, void *in, size_t len)
+{
+	int n;
+	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 512 +
+						  LWS_SEND_BUFFER_POST_PADDING];
+	unsigned char *p = &buf[LWS_SEND_BUFFER_PRE_PADDING];
+	struct per_session_data__dumb_increment *pss = user;
+
+	switch (reason) {
+
+	case LWS_CALLBACK_ESTABLISHED:
+		//start robot connection
+		pss->number = 0;
+		break;
+
+	/*
+	 * in this protocol, we just use the broadcast action as the chance to
+	 * send our own connection-specific data and ignore the broadcast info
+	 * that is available in the 'in' parameter
+	 */
+
+	case LWS_CALLBACK_BROADCAST:
+		n = sprintf((char *)p, "%d", pss->number++);
+		n = libwebsocket_write(wsi, p, n, LWS_WRITE_TEXT);
+		if (n < 0) {
+			fprintf(stderr, "ERROR writing to socket");
+			return 1;
+		}
+		break;
+
+	case LWS_CALLBACK_RECEIVE:
+		fprintf(stderr, "rx %d\n", (int)len);
+		if (len < 6) {
+			char *buf = (char *)in;
+			fprintf(stderr, "cmd %c\n", buf[0]);
+			if (buf[0] =='c') usbfinch_connect();
+			if (buf[0] =='s') stop();
+			if (buf[0] =='f') moveForward();
+			if (buf[0] =='b') moveBackward();
+			if (buf[0] =='l') turnLeft();
+			if (buf[0] =='L') turnLeftSmall(); //small = L
+			if (buf[0] =='r') turnRight();
+			if (buf[0] =='R') turnRightSmall(); //small = R probaly should change 									this later 
+			if (buf[0] =='d') usbfinch_disConnect();
+			break;
+		}
+		if (strcmp(in, "reset\n") == 0) {
+			usbfinch_disConnect();
+			pss->number = 0;
+		}
+		break;
+	/*
+	 * this just demonstrates how to use the protocol filter. If you won't
+	 * study and reject connections based on header content, you don't need
+	 * to handle this callback
+	 */
+
+	case LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION:
+		dump_handshake_info((struct lws_tokens *)(long)user);
+		/* you could return non-zero here and kill the connection */
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+
+
+
+/* list of supported protocols and callbacks */
+
+static struct libwebsocket_protocols protocols[] = {
+	/* first protocol must always be HTTP handler */
+	[PROTOCOL_HTTP] = {
+		.name = "http-only",
+		.callback = callback_http,
+	},
+	[PROTOCOL_DUMB_INCREMENT] = {
+		.name = "dumb-increment-protocol",
+		.callback = callback_dumb_increment,
+		.per_session_data_size =
+				sizeof(struct per_session_data__dumb_increment),
+	},
+	[DEMO_PROTOCOL_COUNT] = {  /* end of list */
+		.callback = NULL
+	}
+};
+
+static struct option options[] = {
+	{ "help",	no_argument,		NULL, 'h' },
+	{ "port",	required_argument,	NULL, 'p' },
+	{ "ssl",	no_argument,		NULL, 's' },
+	{ "killmask",	no_argument,		NULL, 'k' },
+	{ "interface",  required_argument, 	NULL, 'i' },
+	{ NULL, 0, 0, 0 }
+};
+
+int main(int argc, char **argv)
+{
+	int n = 0;
+	const char *cert_path =
+			    LOCAL_RESOURCE_PATH"/libwebsockets-test-server.pem";
+	const char *key_path =
+			LOCAL_RESOURCE_PATH"/libwebsockets-test-server.key.pem";
+	unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + 1024 +
+						  LWS_SEND_BUFFER_POST_PADDING];
+	int port = 7681;
+	int use_ssl = 0;
+	struct libwebsocket_context *context;
+	int opts = 0;
+	char interface_name[128] = "";
+	const char * interface = NULL;
+#ifdef LWS_NO_FORK
+	unsigned int oldus = 0;
+#endif
+
+	fprintf(stderr, "libwebsockets test server\n"
+			"(C) Copyright 2010-2011 Andy Green <andy@warmcat.com> "
+						    "licensed under LGPL2.1\n");
+
+	while (n >= 0) {
+		n = getopt_long(argc, argv, "i:khsp:", options, NULL);
+		if (n < 0)
+			continue;
+		switch (n) {
+		case 's':
+			use_ssl = 1;
+			break;
+		case 'k':
+			opts = LWS_SERVER_OPTION_DEFEAT_CLIENT_MASK;
+			break;
+		case 'p':
+			port = atoi(optarg);
+			break;
+		case 'i':
+			strncpy(interface_name, optarg, sizeof interface_name);
+			interface_name[(sizeof interface_name) - 1] = '\0';
+			interface = interface_name;
+			break;
+		case 'h':
+			fprintf(stderr, "Usage: test-server "
+					     "[--port=<p>] [--ssl]\n");
+			exit(1);
+		}
+	}
+
+	if (!use_ssl)
+		cert_path = key_path = NULL;
+
+	context = libwebsocket_create_context(port, interface, protocols,
+				cert_path, key_path, -1, -1, opts);
+	if (context == NULL) {
+		fprintf(stderr, "libwebsocket init failed\n");
+		return -1;
+	}
+
+	buf[LWS_SEND_BUFFER_PRE_PADDING] = 'x';
+
+#ifdef LWS_NO_FORK
+
+	/*
+	 * This example shows how to work with no forked service loop
+	 */
+
+	fprintf(stderr, " Using no-fork service loop\n");
+
+	while (1) {
+		struct timeval tv;
+
+		gettimeofday(&tv, NULL);
+
+		/*
+		 * This broadcasts to all dumb-increment-protocol connections
+		 * at 20Hz.
+		 *
+		 * We're just sending a character 'x', in these examples the
+		 * callbacks send their own per-connection content.
+		 *
+		 * You have to send something with nonzero length to get the
+		 * callback actions delivered.
+		 *
+		 * We take care of pre-and-post padding allocation.
+		 */
+
+		if (((unsigned int)tv.tv_usec - oldus) > 50000) {
+			libwebsockets_broadcast(
+					&protocols[PROTOCOL_DUMB_INCREMENT],
+					&buf[LWS_SEND_BUFFER_PRE_PADDING], 1);
+			oldus = tv.tv_usec;
+		}
+
+		/*
+		 * This example server does not fork or create a thread for
+		 * websocket service, it all runs in this single loop.  So,
+		 * we have to give the websockets an opportunity to service
+		 * "manually".
+		 *
+		 * If no socket is needing service, the call below returns
+		 * immediately and quickly.
+		 */
+
+		libwebsocket_service(context, 50);
+	}
+
+#else
+
+	/*
+	 * This example shows how to work with the forked websocket service loop
+	 */
+
+	fprintf(stderr, " Using forked service loop\n");
+
+	/*
+	 * This forks the websocket service action into a subprocess so we
+	 * don't have to take care about it.
+	 */
+
+	n = libwebsockets_fork_service_loop(context);
+	if (n < 0) {
+		fprintf(stderr, "Unable to fork service loop %d\n", n);
+		return 1;
+	}
+
+	while (1) {
+
+		usleep(50000);
+
+		/*
+		 * This broadcasts to all dumb-increment-protocol connections
+		 * at 20Hz.
+		 *
+		 * We're just sending a character 'x', in these examples the
+		 * callbacks send their own per-connection content.
+		 *
+		 * You have to send something with nonzero length to get the
+		 * callback actions delivered.
+		 *
+		 * We take care of pre-and-post padding allocation.
+		 */
+
+		libwebsockets_broadcast(&protocols[PROTOCOL_DUMB_INCREMENT],
+					&buf[LWS_SEND_BUFFER_PRE_PADDING], 1);
+	}
+
+#endif
+
+	libwebsocket_context_destroy(context);
+
+	return 0;
+}
